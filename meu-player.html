@@ -139,7 +139,7 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
 
   function say(t,err){msg.textContent=t;msg.className=err?'err':''}
 
-  /* ---- M3U parser ---- */
+  /* ---- M3U parser corrigido e robusto ---- */
   function parse(text){
     var out=[],lines=text.split(/\r?\n/),meta=null;
     for(var i=0;i<lines.length;i++){
@@ -443,7 +443,6 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
         if(s.infoHash){
           var hash=String(s.infoHash).replace(/^urn:btih:/i,'').trim();
           var magnet='magnet:?xt=urn:btih:'+hash;
-          // Stremio pode entregar trackers em sources como "tracker:<URL>".
           (Array.isArray(s.sources)?s.sources:[]).forEach(function(src){
             var tracker=String(src||'');
             if(/^tracker:/i.test(tracker)){
@@ -451,7 +450,7 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
               if(tracker)magnet+='&tr='+encodeURIComponent(tracker);
             }
           });
-          rows.push({t:label||'Torrent - '+r.a.name,s:'Torrent via Webtor',go:function(){playTorrent(magnet,title)} });
+          rows.push({t:label||'Torrent - '+r.a.name,s:'Torrent via Webtor',go:function(){playTorrent(magnet,title)}});
           return;
         }
         if(!s.url){
@@ -506,6 +505,8 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
     $('webtorStage').hidden=false;
     $('torrentInput').value=value||$('torrentInput').value;
   }
+  
+  /* ---- Webtor Seguro e Otimizado ---- */
   function playTorrent(value,title){
     var source=(value||'').trim();
     if(!source)return say('Cole um Magnet ou link .torrent primeiro.',true);
@@ -529,7 +530,6 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
     player.style.height='100%';
     host.appendChild(player);
 
-    // A API oficial usa uma fila window.webtor e o callback "on" para eventos.
     window.webtor=window.webtor||[];
     var config={
       id:playerId,
@@ -540,16 +540,16 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
       on:function(e){
         if(!e||!e.name)return;
         var name=String(e.name);
-        if(name===window.webtor.TORRENT_FETCHED){
+        if(window.webtor.TORRENT_FETCHED&&name===window.webtor.TORRENT_FETCHED){
           say('Torrent localizado. Preparando os arquivos…');
-        }else if(name===window.webtor.INITED){
+        }else if(window.webtor.INITED&&name===window.webtor.INITED){
           say('Player Webtor inicializado. Selecione o arquivo de vídeo, se solicitado.');
-        }else if(name===window.webtor.OPEN){
+        }else if(window.webtor.OPEN&&name===window.webtor.OPEN){
           say('Arquivo aberto no Webtor. Aguarde o início da reprodução…');
-        }else if(name===window.webtor.TORRENT_ERROR){
+        }else if(window.webtor.TORRENT_ERROR&&name===window.webtor.TORRENT_ERROR){
           var detail=(e.data&& (e.data.message||e.data.error))?String(e.data.message||e.data.error):'';
           say('Erro do Webtor ao carregar o torrent.'+(detail?' '+detail:''),true);
-        }else if(name===window.webtor.PLAYER_STATUS&&e.data){
+        }else if(window.webtor.PLAYER_STATUS&&name===window.webtor.PLAYER_STATUS&&e.data){
           var status=String(e.data.status||e.data);
           if(/PLAYING/i.test(status))say('Reproduzindo torrent pelo Webtor.');
         }
@@ -572,6 +572,7 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
     }
     say('Torrent enviado ao Webtor. Aguardando resposta do serviço…');
   }
+
   $('tabL').onclick=function(){tab(false)};
   $('tabA').onclick=function(){tab(true)};
   $('tabT').onclick=function(){showTorrentPanel('')};
@@ -587,6 +588,7 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
   $('asel').onchange=fillCats;
   $('openC').onclick=openCatalog;
   $('aq').addEventListener('keydown',function(e){if(e.key==='Enter')openCatalog()});
+
   function globalSearch(){
     var q=$('gq').value.trim();
     if(!q)return say('Digite o nome do filme ou série.',true);
