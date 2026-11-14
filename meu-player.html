@@ -78,15 +78,23 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
       </details>
     </div>
     <div id="addonPanel" class="tools" hidden>
-      <input id="aurl" type="url" placeholder="Link do add-on (manifest.json ou stremio://)">
-      <div class="row">
-        <button id="addA" class="pri" type="button">Adicionar add-on</button>
-        <button id="rmA" type="button">Remover</button>
-      </div>
-      <select id="asel" aria-label="Add-on"></select>
-      <select id="csel" aria-label="Catálogo"></select>
-      <input id="aq" type="search" placeholder="Buscar (se o catálogo permitir)">
-      <button id="openC" class="pri" type="button">Abrir catálogo</button>
+      <input id="gq" type="search" placeholder="Pesquisar filme ou série">
+      <button id="gSearch" class="pri" type="button">Pesquisar</button>
+      <details id="mgr">
+        <summary>Add-ons e catálogos</summary>
+        <div style="display:grid;gap:10px;margin-top:10px">
+          <input id="aurl" type="url" placeholder="Link do add-on (manifest.json ou stremio://)">
+          <div class="row">
+            <button id="addA" class="pri" type="button">Adicionar add-on</button>
+            <button id="rmA" type="button">Remover</button>
+          </div>
+          <button id="addCine" type="button">Adicionar Cinemeta (busca de títulos)</button>
+          <select id="asel" aria-label="Add-on"></select>
+          <select id="csel" aria-label="Catálogo"></select>
+          <input id="aq" type="search" placeholder="Buscar (se o catálogo permitir)">
+          <button id="openC" type="button">Abrir catálogo</button>
+        </div>
+      </details>
     </div>
     <div id="list" role="list"></div>
   </aside>
@@ -405,6 +413,34 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
   $('asel').onchange=fillCats;
   $('openC').onclick=openCatalog;
   $('aq').addEventListener('keydown',function(e){if(e.key==='Enter')openCatalog()});
+  function globalSearch(){
+    var q=$('gq').value.trim();
+    if(!q)return say('Digite o nome do filme ou série.',true);
+    var jobs=[];
+    addons.forEach(function(a){(a.catalogs||[]).forEach(function(c){
+      if(!hasSearch(c))return;
+      var req=(c.extra||[]).filter(function(e){return e.isRequired&&e.name!=='search'}).length;
+      if(req)return;
+      jobs.push(getJSON(a.base+'/catalog/'+c.type+'/'+encodeURIComponent(c.id)+'/search='+encodeURIComponent(q)+'.json')
+        .then(function(d){return d.metas||[]}).catch(function(){return[]}));
+    })});
+    if(!jobs.length)return say('Nenhum add-on com busca. Toque em "Add-ons e catálogos" e adicione o Cinemeta.',true);
+    say('Pesquisando…');
+    Promise.all(jobs).then(function(all){
+      var seen={},rows=[];
+      all.forEach(function(ms){ms.forEach(function(m){
+        var k=m.type+':'+m.id;if(seen[k])return;seen[k]=1;
+        var kind=m.type==='series'?'série':(m.type==='movie'?'filme':m.type);
+        rows.push({t:m.name,s:[m.releaseInfo,kind].filter(Boolean).join(' - '),img:m.poster,poster:true,go:function(){openMeta(m,pane)}});
+      })});
+      function pane(){showRows(rows,null,'Resultados para "'+q+'"')}
+      pane();say(rows.length?rows.length+' resultados':'Nada encontrado.',!rows.length);
+    });
+  }
+  $('gSearch').onclick=globalSearch;
+  $('gq').addEventListener('keydown',function(e){if(e.key==='Enter')globalSearch()});
+  $('addCine').onclick=function(){$('aurl').value='https://v3-cinemeta.strem.io/manifest.json';addAddon()};
+  $('mgr').open=!addons.length;
   fillAddons();
 
   render();
