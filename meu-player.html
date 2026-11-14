@@ -126,10 +126,11 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
+<script src="https://cdn.dashjs.org/v4.7.4/dash.all.min.js"></script>
 <script>
 (function(){
   var $=function(id){return document.getElementById(id)};
-  var items=[],view=[],cur=-1,hls=null,favs={},favOnly=false,LIMIT=250,shown=LIMIT;
+  var items=[],view=[],cur=-1,hls=null,dash=null,favs={},favOnly=false,LIMIT=250,shown=LIMIT;
   var v=$('v'),msg=$('msg');
 
   function store(k,val){try{if(val===undefined)return localStorage.getItem(k);localStorage.setItem(k,val)}catch(e){return null}}
@@ -208,23 +209,57 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
   });
 
   /* ---- playback ---- */
-  function load(url,title){
+  function load(url,title,stream){
     if(hls){hls.destroy();hls=null}
+    if(dash){try{dash.reset()}catch(e){}dash=null}
+    $('webtorStage').hidden=true;
+    $('webtorPlayer').innerHTML='';
+    v.hidden=false;
     $('now').textContent=title||url;
-    say('Carregando…');
-    var isHls=/\.m3u8(\?|$)/i.test(url)||/\/live\/|\/hls\//i.test(url);
+    say('Carregando fonte HTTP…');
+
+    var bh=(stream&&stream.behaviorHints)||{};
+    var headers=(bh.proxyHeaders&&bh.proxyHeaders.request)||{};
+    var mime=(stream&&(stream.mimeType||stream.type))||bh.mimeType||'';
+    var lower=String(url).toLowerCase();
+    var isHls=/\.m3u8(?:$|[?#])/.test(lower)||/mpegurl/i.test(mime)||/\/hls(?:\/|$)/.test(lower);
+    var isDash=/\.mpd(?:$|[?#])/.test(lower)||/dash\+xml/i.test(mime);
+
+    function applyHeaders(xhr){
+      Object.keys(headers).forEach(function(k){
+        try{xhr.setRequestHeader(k,headers[k])}catch(e){}
+      });
+    }
+
     if(isHls&&window.Hls&&Hls.isSupported()){
-      hls=new Hls({maxBufferLength:20});
+      var cfg={maxBufferLength:30};
+      if(Object.keys(headers).length)cfg.xhrSetup=applyHeaders;
+      hls=new Hls(cfg);
       hls.loadSource(url);hls.attachMedia(v);
       hls.on(Hls.Events.MANIFEST_PARSED,function(){v.play().catch(function(){})});
       hls.on(Hls.Events.ERROR,function(_,d){
         if(d.fatal){
-          if(d.type===Hls.ErrorTypes.NETWORK_ERROR){say('Erro de rede ou bloqueio do servidor (CORS). Tentando de novo…',true);hls.startLoad()}
-          else if(d.type===Hls.ErrorTypes.MEDIA_ERROR){hls.recoverMediaError()}
-          else{say('Não foi possível reproduzir este item.',true)}
+          if(d.type===Hls.ErrorTypes.NETWORK_ERROR){
+            say('Falha ao acessar o stream HLS. Pode haver bloqueio CORS, autenticação ou indisponibilidade da fonte.',true);
+            hls.startLoad();
+          }else if(d.type===Hls.ErrorTypes.MEDIA_ERROR){hls.recoverMediaError()}
+          else{say('Não foi possível reproduzir esta fonte HLS.',true)}
         }
       });
+    }else if(isDash&&window.dashjs){
+      dash=window.dashjs.MediaPlayer().create();
+      if(Object.keys(headers).length){
+        dash.extend('RequestModifier',function(){return{
+          modifyRequestHeader:function(xhr){Object.keys(headers).forEach(function(k){xhr.setRequestHeader(k,headers[k])});return xhr},
+          modifyRequestURL:function(url){return url}
+        }},true);
+      }
+      dash.initialize(v,url,true);
+      dash.on(window.dashjs.MediaPlayer.events.ERROR,function(){say('Falha ao reproduzir o stream DASH. Verifique CORS e compatibilidade da fonte.',true)});
     }else{
+      if(isHls&&Object.keys(headers).length){
+        say('Este navegador não permite enviar os cabeçalhos exigidos pela fonte HLS nativa. Tentando reproduzir mesmo assim.',true);
+      }
       v.src=url;v.play().catch(function(){});
     }
   }
@@ -419,12 +454,24 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
           rows.push({t:label||'Torrent - '+r.a.name,s:'Torrent via Webtor',go:function(){playTorrent(magnet,title)} });
           return;
         }
-        if(!s.url){skipped++;return}
+        if(!s.url){
+          if(s.externalUrl){
+            rows.push({t:label||'Abrir fonte externa',s:'Link externo — depende de outro player',go:function(){
+              try{window.open(s.externalUrl,'_blank','noopener')}catch(e){}
+              say('A fonte externa foi solicitada. Se a TV bloquear a nova janela, copie o link e abra-o manualmente.',true);
+            }});
+          }else{skipped++}
+          return;
+        }
         if(/^magnet:\?/i.test(s.url)||/\.torrent(?:[?#]|$)/i.test(s.url)){
           rows.push({t:label,s:'Torrent via Webtor',go:function(){playTorrent(s.url,title)}});
           return;
         }
-        rows.push({t:label,s:bh.notWebReady?'Pode não tocar neste navegador':'',go:function(){load(s.url,title)}});
+        var details=[];
+        if(s.behaviorHints&&s.behaviorHints.notWebReady)details.push('Pode não tocar no navegador');
+        if(s.mimeType)details.push(s.mimeType);
+        if(s.fileIdx!==undefined)details.push('Arquivo '+s.fileIdx);
+        rows.push({t:label||'Fonte HTTP',s:details.join(' · ')||'Fonte HTTP direta',go:function(){load(s.url,title,s)}});
       })});
       showRows(rows,back,title);
       say(rows.length?rows.length+' fontes':'Nenhuma fonte reproduzível'+(skipped?' ('+skipped+' fontes sem URL/identificador)':''),!rows.length);
