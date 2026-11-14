@@ -406,8 +406,17 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
         var label=((s.name||r.a.name)+' '+(s.title||s.description||'')).replace(/\s*\n\s*/g,' - ').trim();
         var bh=s.behaviorHints||{};
         if(s.infoHash){
-          var magnet='magnet:?xt=urn:btih:'+String(s.infoHash);
-          rows.push({t:label||'Torrent - '+r.a.name,s:'Torrent via Webtor',go:function(){playTorrent(magnet,title)}});
+          var hash=String(s.infoHash).replace(/^urn:btih:/i,'').trim();
+          var magnet='magnet:?xt=urn:btih:'+hash;
+          // Stremio pode entregar trackers em sources como "tracker:<URL>".
+          (Array.isArray(s.sources)?s.sources:[]).forEach(function(src){
+            var tracker=String(src||'');
+            if(/^tracker:/i.test(tracker)){
+              tracker=tracker.replace(/^tracker:/i,'').trim();
+              if(tracker)magnet+='&tr='+encodeURIComponent(tracker);
+            }
+          });
+          rows.push({t:label||'Torrent - '+r.a.name,s:'Torrent via Webtor',go:function(){playTorrent(magnet,title)} });
           return;
         }
         if(!s.url){skipped++;return}
@@ -454,36 +463,67 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
     var source=(value||'').trim();
     if(!source)return say('Cole um Magnet ou link .torrent primeiro.',true);
     var isMagnet=/^magnet:\?/i.test(source);
-    if(!isMagnet&&!/^https?:\/\//i.test(source))return say('Use um link Magnet ou uma URL HTTPS/HTTP de arquivo .torrent.',true);
+    if(!isMagnet&&!/^https?:\/\//i.test(source))return say('Use um link Magnet ou uma URL HTTP/HTTPS de arquivo .torrent.',true);
     if(!isMagnet&&!/\.torrent(?:[?#]|$)/i.test(source)){
       say('A URL precisa apontar para um arquivo .torrent. O servidor também precisa permitir acesso externo (CORS).',true);
       return;
     }
+
     showTorrentPanel(source);
     $('now').textContent=title||'Torrent';
-    say('Preparando o player Webtor…');
+    say('Carregando o Webtor e preparando o torrent…');
     var host=$('webtorPlayer');
     host.innerHTML='';
     var playerId='webtorPlayerInstance';
     var player=document.createElement('div');
     player.id=playerId;
+    player.className='webtor';
     player.style.width='100%';
     player.style.height='100%';
     host.appendChild(player);
+
+    // A API oficial usa uma fila window.webtor e o callback "on" para eventos.
     window.webtor=window.webtor||[];
-    var config={id:playerId,width:'100%',height:'100%',lang:'pt',userLang:'pt',controls:true,header:true};
+    var config={
+      id:playerId,
+      width:'100%',
+      height:'100%',
+      lang:'pt',
+      header:true,
+      on:function(e){
+        if(!e||!e.name)return;
+        var name=String(e.name);
+        if(name===window.webtor.TORRENT_FETCHED){
+          say('Torrent localizado. Preparando os arquivos…');
+        }else if(name===window.webtor.INITED){
+          say('Player Webtor inicializado. Selecione o arquivo de vídeo, se solicitado.');
+        }else if(name===window.webtor.OPEN){
+          say('Arquivo aberto no Webtor. Aguarde o início da reprodução…');
+        }else if(name===window.webtor.TORRENT_ERROR){
+          var detail=(e.data&& (e.data.message||e.data.error))?String(e.data.message||e.data.error):'';
+          say('Erro do Webtor ao carregar o torrent.'+(detail?' '+detail:''),true);
+        }else if(name===window.webtor.PLAYER_STATUS&&e.data){
+          var status=String(e.data.status||e.data);
+          if(/PLAYING/i.test(status))say('Reproduzindo torrent pelo Webtor.');
+        }
+      }
+    };
     if(isMagnet)config.magnet=source;else config.torrentUrl=source;
     window.webtor.push(config);
+
     if(!window.__webtorSdkRequested){
       window.__webtorSdkRequested=true;
       var script=document.createElement('script');
       script.src='https://cdn.jsdelivr.net/npm/@webtor/embed-sdk-js/dist/index.min.js';
       script.async=true;
       script.charset='utf-8';
-      script.onerror=function(){say('Não foi possível carregar o SDK Webtor. Verifique a conexão da TV.',true)};
+      script.onerror=function(){
+        window.__webtorSdkRequested=false;
+        say('Não foi possível carregar o SDK Webtor. Verifique a conexão e tente novamente.',true);
+      };
       document.body.appendChild(script);
     }
-    say('Torrent enviado ao Webtor. Aguarde a conexão e o carregamento do vídeo.');
+    say('Torrent enviado ao Webtor. Aguardando resposta do serviço…');
   }
   $('tabL').onclick=function(){tab(false)};
   $('tabA').onclick=function(){tab(true)};
