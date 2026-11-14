@@ -88,7 +88,7 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
             <button id="addA" class="pri" type="button">Adicionar add-on</button>
             <button id="rmA" type="button">Remover</button>
           </div>
-          <button id="addCine" type="button">Adicionar Cinemeta (busca de títulos)</button>
+          <button id="addCine" type="button">Adicionar Cinemeta (opcional)</button>
           <select id="asel" aria-label="Add-on"></select>
           <select id="csel" aria-label="Catálogo"></select>
           <input id="aq" type="search" placeholder="Buscar (se o catálogo permitir)">
@@ -424,7 +424,8 @@ main{background:radial-gradient(900px 400px at 70% -10%,rgba(138,107,255,.22),tr
       jobs.push(getJSON(a.base+'/catalog/'+c.type+'/'+encodeURIComponent(c.id)+'/search='+encodeURIComponent(q)+'.json')
         .then(function(d){return d.metas||[]}).catch(function(){return[]}));
     })});
-    if(!jobs.length)return say('Nenhum add-on com busca. Toque em "Add-ons e catálogos" e adicione o Cinemeta.',true);
+    if(!addons.length)return say('Adicione um add-on primeiro, em "Add-ons e catálogos".',true);
+    if(!jobs.length)return say('Os add-ons instalados não têm busca própria (só fornecem fontes). Adicione um add-on com catálogo e busca, ou o Cinemeta como opção.',true);
     say('Pesquisando…');
     Promise.all(jobs).then(function(all){
       var seen={},rows=[];
